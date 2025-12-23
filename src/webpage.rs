@@ -9,12 +9,10 @@ use futures::future;
 use serde_json;
 use serde::Serialize;
 use crate::images::{Images, ImagesError};
-use scraper::{Html, Selector};
 
 pub struct WebPage {
-    url: String,
-    title: String,
-    date: String,
+    pub url: String,
+    pub title: String,
     html: String,
     images: Images,
     markdown: String,
@@ -78,7 +76,6 @@ impl WebPage {
         Ok( Self {
             url: url,
             title: title,
-            date: today,
             markdown: md,
             images: images,
             html: html,
@@ -87,47 +84,6 @@ impl WebPage {
         })
 
 
-    }
-
-    fn html_to_simple_markdown(html: &str) -> String {
-        let fragment = Html::parse_fragment(html);
-        let body = fragment.root_element();
-
-        let mut markdown = String::new();
-
-        // Define selectors for headers and text-containing elements
-        let header_selector = Selector::parse("h1, h2, h3, h4, h5, h6").unwrap();
-        let text_selector = Selector::parse("p, div, span, article, section, main").unwrap();
-
-        // Collect all nodes to process in document order
-        let nodes: Vec<scraper::ElementRef> = body
-            .select(&header_selector)
-            .chain(body.select(&text_selector))
-            //.filter(|el| !is_descendant_of_header(el)) // avoid nested text inside headers
-            .collect();
-
-        // Sort by document order (scraper select already yields in doc order)
-        for el in nodes {
-            let tag_name = el.value().name();
-            let text = el.text().collect::<Vec<_>>().join(" ").trim().to_string();
-
-            if text.is_empty() {
-                continue;
-            }
-
-            match tag_name {
-                "h1" => markdown.push_str(&format!("# {}\n\n", text)),
-                "h2" => markdown.push_str(&format!("## {}\n\n", text)),
-                "h3" => markdown.push_str(&format!("### {}\n\n", text)),
-                "h4" => markdown.push_str(&format!("#### {}\n\n", text)),
-                "h5" => markdown.push_str(&format!("##### {}\n\n", text)),
-                "h6" => markdown.push_str(&format!("###### {}\n\n", text)),
-                _ => markdown.push_str(&format!("{}\n\n", text)), // plain paragraph
-            }
-        }
-
-        // Optional: clean extra newlines
-        markdown.trim().to_string().replace("\n\n\n", "\n\n")
     }
 
     async fn html2md(html: String) -> Result<String> {

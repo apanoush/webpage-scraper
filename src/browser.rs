@@ -3,6 +3,8 @@ use anyhow;
 use url::{Url, ParseError};
 use thiserror::Error;
 use crate::webpage::{WebPage, WebPageError};
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Error, Debug)]
 pub enum BrowserError {
@@ -11,7 +13,9 @@ pub enum BrowserError {
     #[error("UrlError, can't parse given URL: {0}")]
     UrlError(#[from] ParseError),
     #[error("WebPageError: {0}")]
-    WebPageError(#[from] WebPageError)
+    WebPageError(#[from] WebPageError),
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error)
 }
 pub type Result<T> = std::result::Result<T, BrowserError>;
 
@@ -19,21 +23,39 @@ pub struct Browser (headless_chrome::Browser);
 
 impl Browser {
     
-    fn new() -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(Self(headless_chrome::Browser::default()?))
     }
-    async fn open_tab(&self, url: &str) -> Result<WebPage> {
-    
+
+    fn url_to_tab(&self, url: &str) -> Result<Arc<headless_chrome::Tab>> {
+        
         Url::parse(url)?;
         let tab = self.0.new_tab()?;
 
-        tab.navigate_to(url)?;
-        tab.wait_until_navigated()?;
+        tab.navigate_to(url)?.wait_until_navigated()?;
+
+        Ok(tab)
+
+    }
+
+    pub async fn open_tab(&self, url: &str) -> Result<WebPage> {
+    
+        let tab = self.url_to_tab(url)?;
 
         let webpage = WebPage::from_tab(tab).await?;
 
         Ok(webpage)
+    }
 
+    pub fn url_to_pdf(&self, url: &str) -> Result<()> {
+
+        let tab = self.url_to_tab(url)?;
+        let title = tab.get_title()?;
+        let filename = format!("{}.pdf", title);
+        let output_path = Path::new(&filename);
+        let pdf = tab.print_to_pdf(None)?;
+        std::fs::write(&output_path, pdf)?;
+        Ok(())
     }
 }
 
