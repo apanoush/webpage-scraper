@@ -1,0 +1,18 @@
+graph LR
+  A[Webpage URL] --> B[website_scraper]
+  subgraph Webpage Archive
+    C[Webpage HTML]
+    D[Webpage Images]
+    E[Webpage Markdown]
+    F[Webpage PDF] 
+    G[Webpage JSON informations]
+
+    C -.-> E
+    C -.-> D
+  end
+
+  B --> C
+  B --> F
+  B --> G
+  
+  
