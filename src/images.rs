@@ -41,7 +41,7 @@ impl Image {
         let img_url = base_url
             .join(src)?;
 
-        Image::fetch_image(client, &img_url).await
+        Image::fetch_image(client, &img_url)
     }
 
     async fn handle_image_srcset(srcset: &str, client: &reqwest::Client) -> Result<Self> {
