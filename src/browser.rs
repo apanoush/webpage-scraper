@@ -64,6 +64,24 @@ impl Browser {
             true,
         )?;
 
+        tab.evaluate(
+            "new Promise(async (resolve) => {
+                const links = [...document.querySelectorAll('link[rel=\"stylesheet\"]')];
+                await Promise.all(links.map(async (link) => {
+                    try {
+                        const r = await fetch(link.href);
+                        if (r.ok) {
+                            const s = document.createElement('style');
+                            s.textContent = await r.text();
+                            link.replaceWith(s);
+                        }
+                    } catch(e) {}
+                }));
+                resolve();
+            })",
+            true,
+        )?;
+
         Ok(tab)
 
     }
