@@ -34,6 +34,36 @@ impl Browser {
 
         tab.navigate_to(url)?.wait_until_navigated()?;
 
+        tab.evaluate(
+            "new Promise((resolve) => {
+                const getH = () => Math.max(
+                    document.body.scrollHeight,
+                    document.body.offsetHeight,
+                    document.documentElement.scrollHeight,
+                    document.documentElement.offsetHeight
+                );
+                let lastH = getH();
+                let stable = 0;
+                const maxCycles = 100;
+                let cycles = 0;
+                const timer = setInterval(() => {
+                    window.scrollBy(0, 300);
+                    cycles++;
+                    setTimeout(() => {
+                        const h = getH();
+                        const atBottom = window.innerHeight + window.scrollY >= h - 50;
+                        if (h === lastH && atBottom) { stable++; } else { stable = 0; lastH = h; }
+                        if ((stable >= 3 && atBottom) || cycles >= maxCycles) {
+                            clearInterval(timer);
+                            window.scrollTo(0, 0);
+                            resolve();
+                        }
+                    }, 150);
+                }, 250);
+            })",
+            true,
+        )?;
+
         Ok(tab)
 
     }

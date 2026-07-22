@@ -9,6 +9,7 @@ use std::path::Path;
 pub struct Image {
     pub image_bytes: Vec<u8>,
     pub filename: String,
+    pub original_src: String,
 }
 
 #[derive(Error, Debug)]
@@ -41,7 +42,9 @@ impl Image {
         let img_url = base_url
             .join(src)?;
 
-        Image::fetch_image(client, &img_url)
+        let mut img = Image::fetch_image(client, &img_url).await?;
+        img.original_src = src.to_string();
+        Ok(img)
     }
 
     async fn handle_image_srcset(srcset: &str, client: &reqwest::Client) -> Result<Self> {
@@ -49,7 +52,9 @@ impl Image {
         let img_url = Image::extract_last_image_url(srcset).ok_or(ImagesError::SrcsetError)?;
         let img_url = Url::parse(img_url)?;
 
-        Image::fetch_image(client, &img_url).await
+        let mut img = Image::fetch_image(client, &img_url).await?;
+        img.original_src = srcset.to_string();
+        Ok(img)
     }
 
     async fn fetch_image(client: &reqwest::Client, img_url: &Url) -> Result<Self> {
@@ -71,6 +76,7 @@ impl Image {
         Ok(Image {
             image_bytes: bytes,
             filename: filename.to_string(),
+            original_src: String::new(),
         })
     }
 
@@ -107,6 +113,7 @@ impl Image {
         Ok(Image {
             image_bytes: bytes,
             filename: format!("inline.{}", extension),
+            original_src: src.to_string(),
         })
     }
 
@@ -173,6 +180,15 @@ impl Images {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn localize_html(&self, html: &str) -> String {
+        let mut localized = html.to_string();
+        for image in self.0.iter() {
+            let replacement = format!("images/{}", image.filename);
+            localized = localized.replace(&image.original_src, &replacement);
+        }
+        localized
     }
 
     pub async fn write_images_to_disk(&self, output_directory: &Path) -> Result<()> {
