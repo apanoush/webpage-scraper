@@ -1,6 +1,6 @@
 # `wbps` — webpage scraper
 
-CLI tool that scrapes a webpage: HTML, PDF, Markdown, metadata JSON, images, CSS, and JavaScript.
+CLI tool that scrapes a webpage: HTML, PDF, Markdown, metadata JSON, images, CSS, JavaScript, and optionally videos.
 
 ## Architecture
 
@@ -9,12 +9,13 @@ main.rs → Browser → (headless Chrome + scroll + capture)
                 → WebPage::from_tab()
                       ├── Pandoc (HTML → Markdown)
                       ├── Images (download <img>, data-srcset, base64 inline)
-                      └── Resources (download <link rel="stylesheet">, <script src>)
+                      ├── Resources (download <link rel="stylesheet">, <script src>)
+                      └── Videos (download <video src>, <source src> -- opt-in)
                 → WebPage::write_to_disk()
                       ├── index.html (with localised asset references)
                       ├── metadata.json
                       ├── conversions/  (PDF + Markdown)
-                      └── assets/  (css/ + js/ + images/)
+                      └── assets/  (css/ + js/ + images/ + videos/)
 ```
 
 ![Overview](assets/overview.pdf)
@@ -27,7 +28,7 @@ main.rs → Browser → (headless Chrome + scroll + capture)
 ## Usage
 
 ```
-wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions]
+wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions] [--download-videos]
 ```
 
 | Argument | Description |
@@ -35,6 +36,7 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions]
 | `URL` | Webpage to scrape |
 | `OUTPUT_DIRECTORY` | Output folder name (defaults to page title) |
 | `--no-conversions` | Skip PDF, Markdown, and Pandoc invocation |
+| `--download-videos` | Also download videos from `<video>` and `<source>` elements |
 
 ## Output structure
 
@@ -52,4 +54,6 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions]
     │   └── script_0.js
     └── images/
         └── image.jpg
+    └── videos/           (only with --download-videos)
+        └── video_0.mp4
 ```

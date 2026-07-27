@@ -68,11 +68,11 @@ impl Browser {
 
     }
 
-    pub async fn open_tab(&self, url: &str, no_conversions: bool) -> Result<WebPage> {
+    pub async fn open_tab(&self, url: &str, no_conversions: bool, download_videos: bool) -> Result<WebPage> {
     
         let tab = self.url_to_tab(url)?;
 
-        let webpage = WebPage::from_tab(tab, no_conversions).await?;
+        let webpage = WebPage::from_tab(tab, no_conversions, download_videos).await?;
 
         Ok(webpage)
     }
@@ -98,7 +98,7 @@ mod tests {
         let b = Browser::new().unwrap();
         let link = "https://100-beste-plakate.de/plakate/";
         //let link = "https://en.wikipedia.org/wiki/%C3%89cole_cantonale_d%27art_de_Lausanne";
-        let tab = b.open_tab(link, false).await.unwrap();
+        let tab = b.open_tab(link, false, false).await.unwrap();
 
         tab.write_to_disk("test/complicated_website", false).await.unwrap();
     }

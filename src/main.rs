@@ -17,6 +17,10 @@ struct Args {
     /// Skip PDF and Markdown conversion
     #[arg(long)]
     no_conversions: bool,
+
+    /// Download videos from <video> and <source> elements
+    #[arg(long)]
+    download_videos: bool,
 }
 
 #[tokio::main]
@@ -26,7 +30,7 @@ async fn main() {
 
     let browser = browser::Browser::new().expect("Can't initiate browser");
 
-    let webpage = browser.open_tab(&args.url, args.no_conversions).await.unwrap();
+    let webpage = browser.open_tab(&args.url, args.no_conversions, args.download_videos).await.unwrap();
 
     let output_directory = match args.output_directory {
         Some(e) => e,

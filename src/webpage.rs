@@ -10,6 +10,7 @@ use serde_json;
 use serde::Serialize;
 use crate::images::{Images, ImagesError};
 use crate::resources::{Resources, ResourcesError};
+use crate::videos::{Videos, VideosError};
 
 pub struct WebPage {
     pub url: String,
@@ -17,6 +18,7 @@ pub struct WebPage {
     html: String,
     images: Images,
     resources: Resources,
+    videos: Videos,
     markdown: String,
     tab: Arc<headless_chrome::Tab>,
     info_json: InfoJson
@@ -30,6 +32,7 @@ pub struct InfoJson {
     nb_images: usize,
     nb_css: usize,
     nb_js: usize,
+    nb_videos: usize,
 }
 
 #[derive(Error, Debug)]
@@ -46,6 +49,8 @@ pub enum WebPageError {
     ImagesError(#[from] ImagesError),
     #[error("ResourcesError: {0}")]
     ResourcesError(#[from] ResourcesError),
+    #[error("VideosError: {0}")]
+    VideosError(#[from] VideosError),
     #[error("AnyhowError: {0}")]
     AnyhowError(#[from] anyhow::Error),
     #[error("JSON conversion error: {0}")]
@@ -56,7 +61,7 @@ pub type Result<T> = std::result::Result<T, WebPageError>;
 
 impl WebPage {
 
-    pub async fn from_tab(tab: Arc<headless_chrome::Tab>, no_conversions: bool) -> Result<Self> {
+    pub async fn from_tab(tab: Arc<headless_chrome::Tab>, no_conversions: bool, download_videos: bool) -> Result<Self> {
 
         let today = OffsetDateTime::now_local()?.date().to_string();
 
@@ -66,22 +71,37 @@ impl WebPage {
 
         let images_fut = Images::from(&html, &url);
         let resources_fut = Resources::from(&html, &url);
-
-        let (markdown, images, resources);
-
-        if no_conversions {
-            let (i, r) = future::join(images_fut, resources_fut).await;
-            let i = i?; let r = r?;
-            images = i;
-            resources = r;
-            markdown = String::new();
+        let videos_fut = if download_videos {
+            Some(Videos::from(html.clone(), url.clone()))
         } else {
-            let md = WebPage::html2md(html.clone());
-            let (md, i, r) = future::join3(md, images_fut, resources_fut).await;
-            let md = md?; let i = i?; let r = r?;
-            markdown = md;
-            images = i;
-            resources = r;
+            None
+        };
+
+        let (markdown, images, resources, videos);
+
+        match (no_conversions, download_videos) {
+            (true, true) => {
+                let (i, r, v) = future::join3(images_fut, resources_fut, videos_fut.unwrap()).await;
+                images = i?; resources = r?; videos = v?;
+                markdown = String::new();
+            }
+            (true, false) => {
+                let (i, r) = future::join(images_fut, resources_fut).await;
+                images = i?; resources = r?;
+                videos = Videos::default();
+                markdown = String::new();
+            }
+            (false, true) => {
+                let md = WebPage::html2md(html.clone());
+                let (md, i, r, v) = future::join4(md, images_fut, resources_fut, videos_fut.unwrap()).await;
+                markdown = md?; images = i?; resources = r?; videos = v?;
+            }
+            (false, false) => {
+                let md = WebPage::html2md(html.clone());
+                let (md, i, r) = future::join3(md, images_fut, resources_fut).await;
+                markdown = md?; images = i?; resources = r?;
+                videos = Videos::default();
+            }
         }
 
         let nb_images = images.len();
@@ -90,6 +110,7 @@ impl WebPage {
             url: url.clone(), title: title.clone(), date: today.clone(),
             nb_images,
             nb_css: resources.nb_css(), nb_js: resources.nb_js(),
+            nb_videos: videos.len(),
         };
 
         Ok( Self {
@@ -98,6 +119,7 @@ impl WebPage {
             markdown,
             images,
             resources,
+            videos,
             html,
             tab,
             info_json
@@ -147,19 +169,21 @@ impl WebPage {
         let html_res = self.output_html(output_path.as_path());
         let images_res = self.images.write_images_to_disk(output_path.as_path());
         let resources_res = self.resources.write_to_disk(output_path.as_path());
+        let videos_res = self.videos.write_to_disk(output_path.as_path());
         let info_json_res = self.output_info_json(output_path.as_path());
 
         if no_conversions {
-            let (html_res, images_res, resources_res) = future::join3(html_res, images_res, resources_res).await;
+            let (html_res, images_res, resources_res, videos_res) = future::join4(html_res, images_res, resources_res, videos_res).await;
             let info_json_res = info_json_res.await;
-            html_res?; images_res?; resources_res?; info_json_res?;
+            html_res?; images_res?; resources_res?; videos_res?; info_json_res?;
         } else {
             std::fs::create_dir(output_path.join("conversions"))?;
             let pdf_res = self.output_pdf(output_path.as_path());
             let md_res = self.output_markdown(output_path.as_path());
             let (html_res, pdf_res, md_res, images_res, resources_res) = future::join5(html_res, pdf_res, md_res, images_res, resources_res).await;
+            let videos_res = videos_res.await;
             let info_json_res = info_json_res.await;
-            html_res?; pdf_res?; md_res?; images_res?; resources_res?; info_json_res?;
+            html_res?; pdf_res?; md_res?; images_res?; resources_res?; videos_res?; info_json_res?;
         }
 
         Ok(())
@@ -177,6 +201,7 @@ impl WebPage {
         let html_path = output_path.join("index.html");
         let localized_html = self.images.localize_html(&self.html);
         let localized_html = self.resources.localize_html(&localized_html);
+        let localized_html = self.videos.localize_html(&localized_html);
         fs::write(html_path, localized_html)?;
         Ok(())
     }
