@@ -185,7 +185,7 @@ impl Images {
     pub fn localize_html(&self, html: &str) -> String {
         let mut localized = html.to_string();
         for image in self.0.iter() {
-            let replacement = format!("images/{}", image.filename);
+            let replacement = format!("assets/images/{}", image.filename);
             localized = localized.replace(&image.original_src, &replacement);
         }
         localized
@@ -195,8 +195,8 @@ impl Images {
 
         if self.len() == 0 {return Ok(());}
         
-        let output_directory = output_directory.join("images");
-        std::fs::create_dir(&output_directory)?;
+        let output_directory = output_directory.join("assets").join("images");
+        std::fs::create_dir_all(&output_directory)?;
 
 
         let mut tasks = Vec::new();

@@ -64,33 +64,15 @@ impl Browser {
             true,
         )?;
 
-        tab.evaluate(
-            "new Promise(async (resolve) => {
-                const links = [...document.querySelectorAll('link[rel=\"stylesheet\"]')];
-                await Promise.all(links.map(async (link) => {
-                    try {
-                        const r = await fetch(link.href);
-                        if (r.ok) {
-                            const s = document.createElement('style');
-                            s.textContent = await r.text();
-                            link.replaceWith(s);
-                        }
-                    } catch(e) {}
-                }));
-                resolve();
-            })",
-            true,
-        )?;
-
         Ok(tab)
 
     }
 
-    pub async fn open_tab(&self, url: &str) -> Result<WebPage> {
+    pub async fn open_tab(&self, url: &str, no_conversions: bool) -> Result<WebPage> {
     
         let tab = self.url_to_tab(url)?;
 
-        let webpage = WebPage::from_tab(tab).await?;
+        let webpage = WebPage::from_tab(tab, no_conversions).await?;
 
         Ok(webpage)
     }
@@ -116,8 +98,8 @@ mod tests {
         let b = Browser::new().unwrap();
         let link = "https://100-beste-plakate.de/plakate/";
         //let link = "https://en.wikipedia.org/wiki/%C3%89cole_cantonale_d%27art_de_Lausanne";
-        let tab = b.open_tab(link).await.unwrap();
+        let tab = b.open_tab(link, false).await.unwrap();
 
-        tab.write_to_disk("test/complicated_website").await.unwrap();
+        tab.write_to_disk("test/complicated_website", false).await.unwrap();
     }
 }

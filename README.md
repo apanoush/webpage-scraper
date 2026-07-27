@@ -1,36 +1,55 @@
-# `webpage_scraper`
+# `wbps` — webpage scraper
 
-cli app that given a URL, scraps a website: HTML (and its pandoc Markdown conversion), info JSON and images.
+CLI tool that scrapes a webpage: HTML, PDF, Markdown, metadata JSON, images, CSS, and JavaScript.
 
-Also contains the `webpage2pdf` binary that only from the URL converts the webpage to PDF.
+## Architecture
 
-![Overview of `webpage_scraper`](assets/overview.pdf)
+```
+main.rs → Browser → (headless Chrome + scroll + capture)
+                → WebPage::from_tab()
+                      ├── Pandoc (HTML → Markdown)
+                      ├── Images (download <img>, data-srcset, base64 inline)
+                      └── Resources (download <link rel="stylesheet">, <script src>)
+                → WebPage::write_to_disk()
+                      ├── index.html (with localised asset references)
+                      ├── metadata.json
+                      ├── conversions/  (PDF + Markdown)
+                      └── assets/  (css/ + js/ + images/)
+```
+
+![Overview](assets/overview.pdf)
 
 ## Dependencies
 
-Both binaries need document converter [pandoc](https://pandoc.org/) installed.
+- [pandoc](https://pandoc.org/) — HTML-to-Markdown conversion (not needed with `--no-conversions`)
+- Chrome / Chromium — headless browser via `headless_chrome` crate
 
 ## Usage
 
-```sh
-Usage: webpage_scraper <URL> [OUTPUT_DIRECTORY]
-
-Arguments:
-  <URL>               URL of the webpage to be scraped
-  [OUTPUT_DIRECTORY]  Name of the output_directory if not given, will use the name of the website
-
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
+```
+wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions]
 ```
 
-```sh
-Usage: webpage2pdf <URL>
+| Argument | Description |
+|---|---|
+| `URL` | Webpage to scrape |
+| `OUTPUT_DIRECTORY` | Output folder name (defaults to page title) |
+| `--no-conversions` | Skip PDF, Markdown, and Pandoc invocation |
 
-Arguments:
-  <URL>  URL of the website to convert to PDF
+## Output structure
 
-Options:
-  -h, --help     Print help
-  -V, --version  Print version
+```
+<output_dir>/
+├── index.html
+├── metadata.json
+├── conversions/
+│   ├── <Title>.md
+│   └── <Title>.pdf
+└── assets/
+    ├── css/
+    │   └── style_0.css
+    ├── js/
+    │   └── script_0.js
+    └── images/
+        └── image.jpg
 ```

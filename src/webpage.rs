@@ -9,12 +9,14 @@ use futures::future;
 use serde_json;
 use serde::Serialize;
 use crate::images::{Images, ImagesError};
+use crate::resources::{Resources, ResourcesError};
 
 pub struct WebPage {
     pub url: String,
     pub title: String,
     html: String,
     images: Images,
+    resources: Resources,
     markdown: String,
     tab: Arc<headless_chrome::Tab>,
     info_json: InfoJson
@@ -25,8 +27,9 @@ pub struct InfoJson {
     url: String,
     title: String,
     date: String,
-    nb_md_words: usize,
     nb_images: usize,
+    nb_css: usize,
+    nb_js: usize,
 }
 
 #[derive(Error, Debug)]
@@ -41,6 +44,8 @@ pub enum WebPageError {
     TimeError(#[from] time::error::IndeterminateOffset),
     #[error("ImagesError: {0}")]
     ImagesError(#[from] ImagesError),
+    #[error("ResourcesError: {0}")]
+    ResourcesError(#[from] ResourcesError),
     #[error("AnyhowError: {0}")]
     AnyhowError(#[from] anyhow::Error),
     #[error("JSON conversion error: {0}")]
@@ -51,7 +56,7 @@ pub type Result<T> = std::result::Result<T, WebPageError>;
 
 impl WebPage {
 
-    pub async fn from_tab(tab: Arc<headless_chrome::Tab>) -> Result<Self> {
+    pub async fn from_tab(tab: Arc<headless_chrome::Tab>, no_conversions: bool) -> Result<Self> {
 
         let today = OffsetDateTime::now_local()?.date().to_string();
 
@@ -59,28 +64,43 @@ impl WebPage {
         let url = tab.get_url();
         let html = tab.get_content()?;
 
-        let md = WebPage::html2md(html.clone());
-        let images = Images::from(&html, &url);
+        let images_fut = Images::from(&html, &url);
+        let resources_fut = Resources::from(&html, &url);
 
-        let (md, images) = future::join(md, images).await;
+        let (markdown, images, resources);
 
-        let md = md?; let images = images?;
+        if no_conversions {
+            let (i, r) = future::join(images_fut, resources_fut).await;
+            let i = i?; let r = r?;
+            images = i;
+            resources = r;
+            markdown = String::new();
+        } else {
+            let md = WebPage::html2md(html.clone());
+            let (md, i, r) = future::join3(md, images_fut, resources_fut).await;
+            let md = md?; let i = i?; let r = r?;
+            markdown = md;
+            images = i;
+            resources = r;
+        }
 
-        let nb_md_words = md.split_whitespace().count();
         let nb_images = images.len();
-       
+
         let info_json = InfoJson {
-            url: url.clone(), title: title.clone(), date: today.clone(), nb_md_words: nb_md_words, nb_images: nb_images,
+            url: url.clone(), title: title.clone(), date: today.clone(),
+            nb_images,
+            nb_css: resources.nb_css(), nb_js: resources.nb_js(),
         };
 
         Ok( Self {
-            url: url,
-            title: title,
-            markdown: md,
-            images: images,
-            html: html,
-            tab: tab,
-            info_json: info_json
+            url,
+            title,
+            markdown,
+            images,
+            resources,
+            html,
+            tab,
+            info_json
         })
 
 
@@ -112,7 +132,7 @@ impl WebPage {
         }
     }
 
-    pub async fn write_to_disk(&self, output_path: &str) -> Result<()> {
+    pub async fn write_to_disk(&self, output_path: &str, no_conversions: bool) -> Result<()> {
 
         let output_path = PathBuf::from(output_path);
 
@@ -125,20 +145,28 @@ impl WebPage {
         std::fs::create_dir(&output_path)?;
 
         let html_res = self.output_html(output_path.as_path());
-        let pdf_res = self.output_pdf(output_path.as_path());
-        let md_res = self.output_markdown(output_path.as_path()); 
         let images_res = self.images.write_images_to_disk(output_path.as_path());
+        let resources_res = self.resources.write_to_disk(output_path.as_path());
         let info_json_res = self.output_info_json(output_path.as_path());
 
-        let (html_res, pdf_res, md_res, images_res, info_json_res) = future::join5(html_res, pdf_res, md_res, images_res, info_json_res).await;
-
-        html_res?; pdf_res?; md_res?; images_res?; info_json_res?;
+        if no_conversions {
+            let (html_res, images_res, resources_res) = future::join3(html_res, images_res, resources_res).await;
+            let info_json_res = info_json_res.await;
+            html_res?; images_res?; resources_res?; info_json_res?;
+        } else {
+            std::fs::create_dir(output_path.join("conversions"))?;
+            let pdf_res = self.output_pdf(output_path.as_path());
+            let md_res = self.output_markdown(output_path.as_path());
+            let (html_res, pdf_res, md_res, images_res, resources_res) = future::join5(html_res, pdf_res, md_res, images_res, resources_res).await;
+            let info_json_res = info_json_res.await;
+            html_res?; pdf_res?; md_res?; images_res?; resources_res?; info_json_res?;
+        }
 
         Ok(())
     }
 
     pub async fn output_pdf(&self, output_path: &Path) -> Result<()> {
-        let output_path = output_path.join(format!("{}.pdf", self.title));
+        let output_path = output_path.join("conversions").join(format!("{}.pdf", self.title));
         let pdf = self.tab.print_to_pdf(None)?;
         std::fs::write(output_path, pdf)?;
         Ok(())
@@ -148,19 +176,19 @@ impl WebPage {
         //let html_path = output_path.join(format!("{}.html", self.title));
         let html_path = output_path.join("index.html");
         let localized_html = self.images.localize_html(&self.html);
+        let localized_html = self.resources.localize_html(&localized_html);
         fs::write(html_path, localized_html)?;
         Ok(())
     }
 
     async fn output_markdown(&self, output_path: &Path) -> Result<()> {
-        let output_path = output_path.join(format!("{}.md", self.title));
+        let output_path = output_path.join("conversions").join(format!("{}.md", self.title));
         fs::write(output_path, &self.markdown)?;
-        //println!("Saved markdown to {}", path.display());
         Ok(())
     }
      
     async fn output_info_json(&self, output_path: &Path) -> Result<()> {
-        let output_path = output_path.join("informations.json");
+        let output_path = output_path.join("metadata.json");
         let json = serde_json::to_string_pretty(&self.info_json)?;
         fs::write(output_path, json)?;
         Ok(())

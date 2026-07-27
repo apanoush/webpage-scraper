@@ -12,7 +12,11 @@ struct Args {
 
     /// Name of the output_directory
     /// if not given, will use the name of the website
-    output_directory: Option<String>
+    output_directory: Option<String>,
+
+    /// Skip PDF and Markdown conversion
+    #[arg(long)]
+    no_conversions: bool,
 }
 
 #[tokio::main]
@@ -22,13 +26,13 @@ async fn main() {
 
     let browser = browser::Browser::new().expect("Can't initiate browser");
 
-    let webpage = browser.open_tab(&args.url).await.unwrap();
+    let webpage = browser.open_tab(&args.url, args.no_conversions).await.unwrap();
 
     let output_directory = match args.output_directory {
         Some(e) => e,
         None => webpage.title.clone()
     };
 
-    webpage.write_to_disk(&output_directory).await.expect("Can't write scraped data to disk");
+    webpage.write_to_disk(&output_directory, args.no_conversions).await.expect("Can't write scraped data to disk");
 
 }
