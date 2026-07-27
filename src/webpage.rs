@@ -145,7 +145,8 @@ impl WebPage {
     }
 
     async fn output_html(&self, output_path: &Path) -> Result<()> {
-        let html_path = output_path.join(format!("{}.html", self.title));
+        //let html_path = output_path.join(format!("{}.html", self.title));
+        let html_path = output_path.join("index.html");
         let localized_html = self.images.localize_html(&self.html);
         fs::write(html_path, localized_html)?;
         Ok(())
