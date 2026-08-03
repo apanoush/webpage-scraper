@@ -5,6 +5,7 @@ use futures::future::{join_all, join};
 use scraper::{Html, Selector};
 use std::path::Path;
 use std::collections::HashSet;
+use regex::Regex;
 
 pub enum ResourceType {
     Css,
@@ -63,7 +64,10 @@ impl Resources {
 
         let base_url = Url::parse(base_url)?;
 
-        let document = Html::parse_document(html);
+        let mut used_css_names: HashSet<String> = HashSet::new();
+        let (html, inline_resources) = extract_inline_styles(html, &mut used_css_names);
+
+        let document = Html::parse_document(&html);
         let css_link_selector = Selector::parse("link[rel=\"stylesheet\"]").unwrap();
         let js_selector = Selector::parse("script[src]").unwrap();
         let client = Self::init_client()?;
@@ -81,7 +85,6 @@ impl Resources {
             .collect();
 
         let mut seen_urls: HashSet<String> = HashSet::new();
-        let mut used_css_names: HashSet<String> = HashSet::new();
         let mut used_js_names: HashSet<String> = HashSet::new();
         let mut css_tasks = Vec::new();
         let mut js_tasks = Vec::new();
@@ -128,11 +131,13 @@ impl Resources {
 
         let (css_results, js_results) = join(join_all(css_tasks), join_all(js_tasks)).await;
 
-        let resources: Vec<Resource> = css_results
+        let mut resources: Vec<Resource> = css_results
             .into_iter()
             .chain(js_results.into_iter())
             .filter_map(std::result::Result::ok)
             .collect();
+
+        resources.extend(inline_resources);
 
         let nb_css = resources.iter().filter(|r| matches!(r.resource_type, ResourceType::Css)).count();
         let nb_js = resources.iter().filter(|r| matches!(r.resource_type, ResourceType::Js)).count();
@@ -264,6 +269,48 @@ fn unique_resource_name(url: &Url, used: &mut HashSet<String>, ext: &str) -> Str
         let candidate = format!("{}_{}.{}", stem, i, ext);
         if used.insert(candidate.clone()) {
             return candidate;
+        }
+    }
+    unreachable!()
+}
+
+fn extract_inline_styles(html: &str, used_css_names: &mut HashSet<String>) -> (String, Vec<Resource>) {
+    let re = Regex::new(r"(?is)<style[^>]*>(.*?)</style>").unwrap();
+    let mut modified = String::with_capacity(html.len());
+    let mut resources = Vec::new();
+    let mut last_end = 0;
+
+    for caps in re.captures_iter(html) {
+        if let Some(m) = caps.get(0) {
+            let content = caps.get(1).map(|c| c.as_str()).unwrap_or("");
+            let start = m.start();
+            let end = m.end();
+
+            let filename = next_inline_name(used_css_names);
+            let replacement = format!("<link rel=\"stylesheet\" href=\"assets/css/{}\">", filename);
+
+            modified.push_str(&html[last_end..start]);
+            modified.push_str(&replacement);
+            last_end = end;
+
+            resources.push(Resource {
+                bytes: content.as_bytes().to_vec(),
+                filename,
+                original_ref: String::new(),
+                resource_type: ResourceType::Css,
+            });
+        }
+    }
+
+    modified.push_str(&html[last_end..]);
+    (modified, resources)
+}
+
+fn next_inline_name(used: &mut HashSet<String>) -> String {
+    for i in 0.. {
+        let name = format!("inline_{}.css", i);
+        if used.insert(name.clone()) {
+            return name;
         }
     }
     unreachable!()

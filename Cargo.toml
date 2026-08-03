@@ -10,6 +10,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 futures = "0.3.31"
 headless_chrome = "1.0.20"
 pandoc = "0.8.11"
+regex = "1"
 reqwest = { version = "0.12.25", features = ["blocking"] }
 scraper = "0.25.0"
 serde = "1.0.228"
