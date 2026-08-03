@@ -197,8 +197,8 @@ impl WebPage {
     }
 
     async fn output_html(&self, output_path: &Path) -> Result<()> {
-        //let html_path = output_path.join(format!("{}.html", self.title));
-        let html_path = output_path.join("index.html");
+        let html_path = output_path.join(format!("{}.html", self.title));
+        //let html_path = output_path.join("index.html");
         let localized_html = self.images.localize_html(&self.html);
         let localized_html = self.resources.localize_html(&localized_html);
         let localized_html = self.videos.localize_html(&localized_html);
