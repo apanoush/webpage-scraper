@@ -5,12 +5,13 @@ CLI tool that scrapes a webpage: HTML, PDF, Markdown, metadata JSON, images, CSS
 ## Architecture
 
 ```
-main.rs → Browser → (headless Chrome + scroll + capture)
+main.rs → Browser → (headless Chrome + scroll + DOM stability wait)
                 → WebPage::from_tab()
-                      ├── Pandoc (HTML → Markdown)
+                      ├── PDF capture (early, via tab.print_to_pdf)
+                      ├── Pandoc (HTML → Markdown, skipped with --no-conversions)
                       ├── Images (download <img>, data-srcset, base64 inline)
-                      ├── Resources (collect CSSOM stylesheets via document.styleSheets,
-                      │           download <script src>, original filenames for @import support)
+                      ├── Resources (collect CSS via performance API + <link> fallback,
+                      │           original filenames for @import support, download <script src>)
                       └── Videos (download <video src>, <source src>, <iframe src> -- opt-in)
                 → WebPage::write_to_disk()
                       ├── index.html (with localised asset references)
@@ -37,7 +38,7 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions] [--download-videos]
 | `URL` | Webpage to scrape |
 | `OUTPUT_DIRECTORY` | Output folder name (defaults to page title) |
 | `--no-conversions` | Skip PDF, Markdown, and Pandoc invocation |
-| `--download-videos` | Also download videos from `<video>` and `<source>` elements |
+| `--download-videos` | Also download videos from `<video>`, `<source>`, and `<iframe>` elements |
 
 ## Output structure
 
@@ -50,7 +51,7 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions] [--download-videos]
 │   └── <Title>.pdf
 └── assets/
     ├── css/
-    │   └── style_0.css
+    │   └── style.css
     ├── js/
     │   └── script_0.js
     └── images/

@@ -70,14 +70,20 @@ impl Resources {
 
         let link_map: Vec<(Url, String)> = document.select(&css_link_selector)
             .filter_map(|el| el.value().attr("href"))
-            .filter_map(|href| base_url.join(href).ok().map(|u| (u, href.to_string())))
+            .filter_map(|href| {
+                let fixed = if href.starts_with("//") {
+                    format!("https:{}", href)
+                } else {
+                    href.to_string()
+                };
+                base_url.join(&fixed).ok().map(|u| (u, href.to_string()))
+            })
             .collect();
 
         let mut seen_urls: HashSet<String> = HashSet::new();
+        let mut used_filenames: HashSet<String> = HashSet::new();
         let mut css_tasks = Vec::new();
         let mut js_tasks = Vec::new();
-        let mut js_count = 0usize;
-        let mut css_idx = 0usize;
 
         for css_url_str in css_urls.iter() {
             if let Ok(parsed) = Url::parse(css_url_str) {
@@ -88,12 +94,11 @@ impl Resources {
                     .find(|(u, _)| *u == parsed)
                     .map(|(_, href)| href.clone())
                     .unwrap_or(css_url_str.clone());
-                let filename = filename_from_url(&parsed);
+                let filename = unique_filename(&parsed, &mut used_filenames);
                 let task = Self::download_css(
                     client.clone(), parsed.clone(), original_ref, filename,
                 );
                 css_tasks.push(task);
-                css_idx += 1;
             }
         }
 
@@ -101,22 +106,20 @@ impl Resources {
             let normalized = resolved_url.as_str().trim_end_matches('/').to_string();
             if !seen_urls.insert(normalized) { continue; }
 
-            let filename = filename_from_url(resolved_url);
+            let filename = unique_filename(resolved_url, &mut used_filenames);
             let task = Self::download_css(
                 client.clone(), resolved_url.clone(), original_href.clone(), filename,
             );
             css_tasks.push(task);
-            css_idx += 1;
         }
 
         for (idx, element) in document.select(&js_selector).enumerate() {
             if let Some(src) = element.value().attr("src") {
                 if let Ok(res_url) = base_url.join(src) {
-                    let task = Self::download_js(
-                        client.clone(), res_url, src.to_string(), idx,
-                    );
-                    js_tasks.push(task);
-                    js_count += 1;
+                let task = Self::download_js(
+                    client.clone(), res_url, src.to_string(), idx,
+                );
+                js_tasks.push(task);
                 }
             }
         }
@@ -129,10 +132,13 @@ impl Resources {
             .filter_map(std::result::Result::ok)
             .collect();
 
+        let nb_css = resources.iter().filter(|r| matches!(r.resource_type, ResourceType::Css)).count();
+        let nb_js = resources.iter().filter(|r| matches!(r.resource_type, ResourceType::Js)).count();
+
         Ok(Self {
             resources,
-            nb_css: css_idx,
-            nb_js: js_count,
+            nb_css,
+            nb_js,
         })
     }
 
@@ -240,4 +246,18 @@ fn filename_from_url(url: &Url) -> String {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .unwrap_or_else(|| "style.css".to_string())
+}
+
+fn unique_filename(url: &Url, used: &mut HashSet<String>) -> String {
+    let base = filename_from_url(url);
+    if used.insert(base.clone()) {
+        return base;
+    }
+    for i in 1.. {
+        let candidate = format!("style_{}.css", i);
+        if used.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
