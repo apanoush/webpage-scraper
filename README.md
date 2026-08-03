@@ -9,7 +9,8 @@ main.rs → Browser → (headless Chrome + scroll + DOM stability wait)
                 → WebPage::from_tab()
                       ├── PDF capture (early, via tab.print_to_pdf)
                       ├── Pandoc (HTML → Markdown, skipped with --no-conversions)
-                      ├── Images (download <img>, data-srcset, base64 inline)
+                      ├── Images (download img src, srcset, data-src, data-srcset,
+                      │           picture source srcset, base64 inline, dedup)
                       ├── Resources (collect CSS via performance API + <link> fallback,
                       │           original filenames for @import support, download <script src>)
                       └── Videos (download <video src>, <source src>, <iframe src> -- opt-in)

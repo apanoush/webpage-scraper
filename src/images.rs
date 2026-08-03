@@ -5,6 +5,7 @@ use base64::Engine;
 use futures::future::join_all;
 use scraper::{Html, Selector};
 use std::path::Path;
+use std::collections::HashSet;
 
 pub struct Image {
     pub image_bytes: Vec<u8>,
@@ -136,31 +137,55 @@ impl Images {
 
         let document = Html::parse_document(html);
         let img_selector = Selector::parse("img").unwrap();
-        //let client = Client::new();
+        let source_selector = Selector::parse("picture source[srcset]").unwrap();
         let client = Self::init_client()?;
 
         let mut tasks_src = Vec::new();
         let mut tasks_srcset = Vec::new();
+        let mut seen_urls = HashSet::new();
 
         for element in document.select(&img_selector) {
             if let Some(src) = element.value().attr("src") {
-                // Spawn async task per image
-                let task = Image::handle_image_src(src, &base_url, &client);
-
-                tasks_src.push(task);
+                if seen_urls.insert(src.to_string()) {
+                    let task = Image::handle_image_src(src, &base_url, &client);
+                    tasks_src.push(task);
+                }
             }
 
-            if let Some(srcset) = element.attr("data-srcset") {
-                let task = Image::handle_image_srcset(srcset, &client);
-                tasks_srcset.push(task);
+            if let Some(src) = element.value().attr("data-src") {
+                if seen_urls.insert(src.to_string()) {
+                    let task = Image::handle_image_src(src, &base_url, &client);
+                    tasks_src.push(task);
+                }
+            }
+
+            if let Some(srcset) = element.value().attr("srcset") {
+                if seen_urls.insert(srcset.to_string()) {
+                    let task = Image::handle_image_srcset(srcset, &client);
+                    tasks_srcset.push(task);
+                }
+            }
+
+            if let Some(srcset) = element.value().attr("data-srcset") {
+                if seen_urls.insert(srcset.to_string()) {
+                    let task = Image::handle_image_srcset(srcset, &client);
+                    tasks_srcset.push(task);
+                }
             }
         }
 
-        // Run all downloads concurrently
+        for element in document.select(&source_selector) {
+            if let Some(srcset) = element.value().attr("srcset") {
+                if seen_urls.insert(srcset.to_string()) {
+                    let task = Image::handle_image_srcset(srcset, &client);
+                    tasks_srcset.push(task);
+                }
+            }
+        }
+
         let results_src = join_all(tasks_src).await;
         let results_srcset = join_all(tasks_srcset).await;
 
-        // Collect successful images only
         let images = results_src
             .into_iter()
             .chain(results_srcset.into_iter())
