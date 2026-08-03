@@ -81,7 +81,8 @@ impl Resources {
             .collect();
 
         let mut seen_urls: HashSet<String> = HashSet::new();
-        let mut used_filenames: HashSet<String> = HashSet::new();
+        let mut used_css_names: HashSet<String> = HashSet::new();
+        let mut used_js_names: HashSet<String> = HashSet::new();
         let mut css_tasks = Vec::new();
         let mut js_tasks = Vec::new();
 
@@ -94,7 +95,7 @@ impl Resources {
                     .find(|(u, _)| *u == parsed)
                     .map(|(_, href)| href.clone())
                     .unwrap_or(css_url_str.clone());
-                let filename = unique_filename(&parsed, &mut used_filenames);
+                let filename = unique_resource_name(&parsed, &mut used_css_names, "css");
                 let task = Self::download_css(
                     client.clone(), parsed.clone(), original_ref, filename,
                 );
@@ -106,20 +107,21 @@ impl Resources {
             let normalized = resolved_url.as_str().trim_end_matches('/').to_string();
             if !seen_urls.insert(normalized) { continue; }
 
-            let filename = unique_filename(resolved_url, &mut used_filenames);
+            let filename = unique_resource_name(resolved_url, &mut used_css_names, "css");
             let task = Self::download_css(
                 client.clone(), resolved_url.clone(), original_href.clone(), filename,
             );
             css_tasks.push(task);
         }
 
-        for (idx, element) in document.select(&js_selector).enumerate() {
+        for element in document.select(&js_selector) {
             if let Some(src) = element.value().attr("src") {
                 if let Ok(res_url) = base_url.join(src) {
-                let task = Self::download_js(
-                    client.clone(), res_url, src.to_string(), idx,
-                );
-                js_tasks.push(task);
+                    let filename = unique_resource_name(&res_url, &mut used_js_names, "js");
+                    let task = Self::download_js(
+                        client.clone(), res_url, src.to_string(), filename,
+                    );
+                    js_tasks.push(task);
                 }
             }
         }
@@ -159,12 +161,12 @@ impl Resources {
         client: reqwest::Client,
         url: Url,
         original_ref: String,
-        idx: usize,
+        filename: String,
     ) -> std::result::Result<Resource, ResourcesError> {
         let mut resource = Resource::fetch(&client, &url).await?;
         resource.resource_type = ResourceType::Js;
         resource.original_ref = original_ref;
-        resource.filename = format!("script_{}.js", idx);
+        resource.filename = filename;
         Ok(resource)
     }
 
@@ -248,13 +250,18 @@ fn filename_from_url(url: &Url) -> String {
         .unwrap_or_else(|| "style.css".to_string())
 }
 
-fn unique_filename(url: &Url, used: &mut HashSet<String>) -> String {
+fn unique_resource_name(url: &Url, used: &mut HashSet<String>, ext: &str) -> String {
     let base = filename_from_url(url);
+    let base = if base.contains('.') { base } else { format!("{}.{}", base, ext) };
     if used.insert(base.clone()) {
         return base;
     }
+    let stem = match base.rfind('.') {
+        Some(dot) => base[..dot].to_string(),
+        None => base,
+    };
     for i in 1.. {
-        let candidate = format!("style_{}.css", i);
+        let candidate = format!("{}_{}.{}", stem, i, ext);
         if used.insert(candidate.clone()) {
             return candidate;
         }

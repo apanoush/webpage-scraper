@@ -54,7 +54,7 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions] [--download-videos]
     ├── css/
     │   └── style.css
     ├── js/
-    │   └── script_0.js
+    │   └── script.js
     └── images/
         └── image.jpg
     └── videos/           (only with --download-videos)
