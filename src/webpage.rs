@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::images::{Images, ImagesError};
 use crate::resources::{Resources, ResourcesError};
 use crate::videos::{Videos, VideosError};
+use regex::Regex;
 
 pub struct WebPage {
     pub url: String,
@@ -209,6 +210,7 @@ impl WebPage {
         let localized_html = self.images.localize_html(&self.html);
         let localized_html = self.resources.localize_html(&localized_html);
         let localized_html = self.videos.localize_html(&localized_html);
+        let localized_html = fix_charset(&localized_html);
         fs::write(html_path, localized_html)?;
         Ok(())
     }
@@ -226,6 +228,11 @@ impl WebPage {
         Ok(())
     }
 
+}
+
+fn fix_charset(html: &str) -> String {
+    let re = Regex::new(r#"(?i)(<meta[^>]*charset\s*=\s*["'])([^"']+)(["'])"#).unwrap();
+    re.replace(html, "${1}utf-8$3").to_string()
 }
 
 #[cfg(test)]
