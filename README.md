@@ -16,7 +16,7 @@ main.rs → Browser → (headless Chrome + scroll + DOM stability wait)
                       │           original filenames for @import support, download <script src>)
                       └── Videos (download <video src>, <source src>, <iframe src> -- opt-in)
                 → WebPage::write_to_disk()
-                      ├── index.html (with localised asset references)
+                      ├── <Title>.html (localised assets, charset → utf-8)
                       ├── metadata.json
                       ├── conversions/  (PDF + Markdown)
                       └── assets/  (css/ + js/ + images/ + videos/)
@@ -46,7 +46,7 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions] [--download-videos]
 
 ```
 <output_dir>/
-├── index.html
+├── <Title>.html
 ├── metadata.json
 ├── conversions/
 │   ├── <Title>.md

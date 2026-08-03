@@ -232,7 +232,9 @@ impl WebPage {
 
 fn fix_charset(html: &str) -> String {
     let re = Regex::new(r#"(?i)(<meta[^>]*charset\s*=\s*["'])([^"']+)(["'])"#).unwrap();
-    re.replace(html, "${1}utf-8$3").to_string()
+    let html = re.replace_all(html, "${1}utf-8$3").to_string();
+    let re2 = Regex::new(r"(?i)(<meta[^>]*charset\s*=\s*)([a-zA-Z0-9_-]+)").unwrap();
+    re2.replace_all(&html, "${1}utf-8").to_string()
 }
 
 #[cfg(test)]
