@@ -11,7 +11,8 @@ main.rs → Browser → (headless Chrome + scroll + DOM stability wait)
                       ├── Pandoc (HTML → Markdown, skipped with --no-conversions)
                       ├── Images (download img src, srcset, data-src, data-srcset,
                       │           picture source srcset, base64 inline, dedup)
-                      ├── Resources (collect CSS via performance API + <link> fallback,
+                      ├── Resources (inline <style>/<script> extraction,
+                      │           collect CSS via performance API + <link> fallback,
                       │           original filenames for @import support, download <script src>)
                       └── Videos (download <video src>, <source src>, <iframe src> -- opt-in)
                 → WebPage::write_to_disk()
@@ -52,9 +53,11 @@ wbps <URL> [OUTPUT_DIRECTORY] [--no-conversions] [--download-videos]
 │   └── <Title>.pdf
 └── assets/
     ├── css/
-    │   └── style.css
+    │   ├── style.css
+    │   └── inline_0.css
     ├── js/
-    │   └── script.js
+    │   ├── script.js
+    │   └── inline_0.js
     └── images/
         └── image.jpg
     └── videos/           (only with --download-videos)

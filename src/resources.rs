@@ -65,7 +65,9 @@ impl Resources {
         let base_url = Url::parse(base_url)?;
 
         let mut used_css_names: HashSet<String> = HashSet::new();
-        let (html, inline_resources) = extract_inline_styles(html, &mut used_css_names);
+        let mut used_js_names: HashSet<String> = HashSet::new();
+        let (html, inline_css) = extract_inline_styles(html, &mut used_css_names);
+        let (html, inline_js) = extract_inline_scripts(&html, &mut used_js_names);
 
         let document = Html::parse_document(&html);
         let css_link_selector = Selector::parse("link[rel=\"stylesheet\"]").unwrap();
@@ -137,7 +139,8 @@ impl Resources {
             .filter_map(std::result::Result::ok)
             .collect();
 
-        resources.extend(inline_resources);
+        resources.extend(inline_css);
+        resources.extend(inline_js);
 
         let nb_css = resources.iter().filter(|r| matches!(r.resource_type, ResourceType::Css)).count();
         let nb_js = resources.iter().filter(|r| matches!(r.resource_type, ResourceType::Js)).count();
@@ -198,11 +201,18 @@ impl Resources {
     pub fn localize_html(&self, html: &str) -> String {
         let mut localized = html.to_string();
         for resource in self.resources.iter() {
-            let subdir = match resource.resource_type {
-                ResourceType::Css => "css",
-                ResourceType::Js => "js",
+            let replacement = if resource.original_ref.starts_with('<') {
+                match resource.resource_type {
+                    ResourceType::Css => format!("<link rel=\"stylesheet\" href=\"assets/css/{}\">", resource.filename),
+                    ResourceType::Js => format!("<script src=\"assets/js/{}\"></script>", resource.filename),
+                }
+            } else {
+                let subdir = match resource.resource_type {
+                    ResourceType::Css => "css",
+                    ResourceType::Js => "js",
+                };
+                format!("assets/{}/{}", subdir, resource.filename)
             };
-            let replacement = format!("assets/{}/{}", subdir, resource.filename);
             localized = localized.replace(&resource.original_ref, &replacement);
         }
         localized
@@ -286,7 +296,7 @@ fn extract_inline_styles(html: &str, used_css_names: &mut HashSet<String>) -> (S
             let start = m.start();
             let end = m.end();
 
-            let filename = next_inline_name(used_css_names);
+            let filename = next_inline_name(used_css_names, "css");
             let replacement = format!("<link rel=\"stylesheet\" href=\"assets/css/{}\">", filename);
 
             modified.push_str(&html[last_end..start]);
@@ -296,7 +306,7 @@ fn extract_inline_styles(html: &str, used_css_names: &mut HashSet<String>) -> (S
             resources.push(Resource {
                 bytes: content.as_bytes().to_vec(),
                 filename,
-                original_ref: String::new(),
+                original_ref: m.as_str().to_string(),
                 resource_type: ResourceType::Css,
             });
         }
@@ -306,9 +316,46 @@ fn extract_inline_styles(html: &str, used_css_names: &mut HashSet<String>) -> (S
     (modified, resources)
 }
 
-fn next_inline_name(used: &mut HashSet<String>) -> String {
+fn extract_inline_scripts(html: &str, used_js_names: &mut HashSet<String>) -> (String, Vec<Resource>) {
+    let re = Regex::new(r"(?is)<script(\s[^>]*)?>(.*?)</script>").unwrap();
+    let mut modified = String::with_capacity(html.len());
+    let mut resources = Vec::new();
+    let mut last_end = 0;
+
+    for caps in re.captures_iter(html) {
+        let has_src = caps.get(1)
+            .map(|a| a.as_str().contains("src="))
+            .unwrap_or(false);
+        if has_src { continue; }
+
+        if let Some(m) = caps.get(0) {
+            let content = caps.get(2).map(|c| c.as_str()).unwrap_or("");
+            let start = m.start();
+            let end = m.end();
+
+            let filename = next_inline_name(used_js_names, "js");
+            let replacement = format!("<script src=\"assets/js/{}\"></script>", filename);
+
+            modified.push_str(&html[last_end..start]);
+            modified.push_str(&replacement);
+            last_end = end;
+
+            resources.push(Resource {
+                bytes: content.as_bytes().to_vec(),
+                filename,
+                original_ref: m.as_str().to_string(),
+                resource_type: ResourceType::Js,
+            });
+        }
+    }
+
+    modified.push_str(&html[last_end..]);
+    (modified, resources)
+}
+
+fn next_inline_name(used: &mut HashSet<String>, ext: &str) -> String {
     for i in 0.. {
-        let name = format!("inline_{}.css", i);
+        let name = format!("inline_{}.{}", i, ext);
         if used.insert(name.clone()) {
             return name;
         }
