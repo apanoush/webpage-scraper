@@ -5,6 +5,7 @@ use thiserror::Error;
 use crate::webpage::{WebPage, WebPageError};
 use std::path::Path;
 use std::sync::Arc;
+use serde_json;
 
 #[derive(Error, Debug)]
 pub enum BrowserError {
@@ -64,6 +65,29 @@ impl Browser {
             true,
         )?;
 
+        tab.evaluate(
+            "new Promise((resolve) => {
+                let lastLength = document.body.innerHTML.length;
+                let stable = 0;
+                const neededStable = document.querySelector('.loader, .upt-loader, .loading, [data-loading], [aria-busy=\"true\"], .spinner') ? 3 : 2;
+                const check = setInterval(() => {
+                    const len = document.body.innerHTML.length;
+                    const busy = document.querySelector('.loader, .upt-loader, .loading, [data-loading], [aria-busy=\"true\"], .spinner');
+                    if (len === lastLength && !busy) {
+                        stable++;
+                        if (stable >= neededStable) {
+                            clearInterval(check);
+                            resolve();
+                        }
+                    } else {
+                        stable = 0;
+                        lastLength = len;
+                    }
+                }, 1000);
+            })",
+            true,
+        )?;
+
         Ok(tab)
 
     }
@@ -72,7 +96,20 @@ impl Browser {
     
         let tab = self.url_to_tab(url)?;
 
-        let webpage = WebPage::from_tab(tab, no_conversions, download_videos).await?;
+        let css_urls: Vec<String> = tab.evaluate(
+            "JSON.stringify([...new Set(
+                performance.getEntriesByType('resource')
+                    .filter(e => e.initiatorType === 'css' && e.name && e.name.includes('.css'))
+                    .map(e => e.name)
+            )])",
+            false,
+        )?
+        .value
+        .and_then(|v| v.as_str().map(String::from))
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+        let webpage = WebPage::from_tab(tab, no_conversions, download_videos, css_urls).await?;
 
         Ok(webpage)
     }

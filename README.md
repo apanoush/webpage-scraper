@@ -9,8 +9,9 @@ main.rs → Browser → (headless Chrome + scroll + capture)
                 → WebPage::from_tab()
                       ├── Pandoc (HTML → Markdown)
                       ├── Images (download <img>, data-srcset, base64 inline)
-                      ├── Resources (download <link rel="stylesheet">, <script src>)
-                      └── Videos (download <video src>, <source src> -- opt-in)
+                      ├── Resources (collect CSSOM stylesheets via document.styleSheets,
+                      │           download <script src>, original filenames for @import support)
+                      └── Videos (download <video src>, <source src>, <iframe src> -- opt-in)
                 → WebPage::write_to_disk()
                       ├── index.html (with localised asset references)
                       ├── metadata.json

@@ -20,7 +20,7 @@ pub struct WebPage {
     resources: Resources,
     videos: Videos,
     markdown: String,
-    tab: Arc<headless_chrome::Tab>,
+    pdf: Option<Vec<u8>>,
     info_json: InfoJson
 }
 
@@ -61,7 +61,7 @@ pub type Result<T> = std::result::Result<T, WebPageError>;
 
 impl WebPage {
 
-    pub async fn from_tab(tab: Arc<headless_chrome::Tab>, no_conversions: bool, download_videos: bool) -> Result<Self> {
+    pub async fn from_tab(tab: Arc<headless_chrome::Tab>, no_conversions: bool, download_videos: bool, css_urls: Vec<String>) -> Result<Self> {
 
         let today = OffsetDateTime::now_local()?.date().to_string();
 
@@ -69,8 +69,14 @@ impl WebPage {
         let url = tab.get_url();
         let html = tab.get_content()?;
 
+        let pdf = if no_conversions {
+            None
+        } else {
+            Some(tab.print_to_pdf(None)?)
+        };
+
         let images_fut = Images::from(&html, &url);
-        let resources_fut = Resources::from(&html, &url);
+        let resources_fut = Resources::from(&html, &url, css_urls);
         let videos_fut = if download_videos {
             Some(Videos::from(html.clone(), url.clone()))
         } else {
@@ -120,8 +126,8 @@ impl WebPage {
             images,
             resources,
             videos,
+            pdf,
             html,
-            tab,
             info_json
         })
 
@@ -191,8 +197,9 @@ impl WebPage {
 
     pub async fn output_pdf(&self, output_path: &Path) -> Result<()> {
         let output_path = output_path.join("conversions").join(format!("{}.pdf", self.title));
-        let pdf = self.tab.print_to_pdf(None)?;
-        std::fs::write(output_path, pdf)?;
+        if let Some(ref pdf_bytes) = self.pdf {
+            std::fs::write(output_path, pdf_bytes)?;
+        }
         Ok(())
     }
 

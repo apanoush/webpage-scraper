@@ -1,9 +1,10 @@
 use thiserror::Error;
 use url::{Url, ParseError};
 use reqwest;
-use futures::future::join_all;
+use futures::future::{join_all, join};
 use scraper::{Html, Selector};
 use std::path::Path;
+use std::collections::HashSet;
 
 pub enum ResourceType {
     Css,
@@ -58,75 +59,106 @@ pub struct Resources {
 
 impl Resources {
 
-    pub async fn from(html: &str, base_url: &str) -> Result<Self> {
+    pub async fn from(html: &str, base_url: &str, css_urls: Vec<String>) -> Result<Self> {
 
         let base_url = Url::parse(base_url)?;
 
         let document = Html::parse_document(html);
-        let css_selector = Selector::parse("link[rel=\"stylesheet\"]").unwrap();
+        let css_link_selector = Selector::parse("link[rel=\"stylesheet\"]").unwrap();
         let js_selector = Selector::parse("script[src]").unwrap();
         let client = Self::init_client()?;
 
-        let mut tasks = Vec::new();
-        let mut css_count = 0usize;
-        let mut js_count = 0usize;
+        let link_map: Vec<(Url, String)> = document.select(&css_link_selector)
+            .filter_map(|el| el.value().attr("href"))
+            .filter_map(|href| base_url.join(href).ok().map(|u| (u, href.to_string())))
+            .collect();
 
-        for element in document.select(&css_selector) {
-            if let Some(href) = element.value().attr("href") {
-                if let Ok(res_url) = base_url.join(href) {
-                    css_count += 1;
-                    let idx = css_count - 1;
-                    let task = Self::download_with_meta(
-                        client.clone(), res_url, href.to_string(),
-                        ResourceType::Css, idx,
-                    );
-                    tasks.push(task);
-                }
+        let mut seen_urls: HashSet<String> = HashSet::new();
+        let mut css_tasks = Vec::new();
+        let mut js_tasks = Vec::new();
+        let mut js_count = 0usize;
+        let mut css_idx = 0usize;
+
+        for css_url_str in css_urls.iter() {
+            if let Ok(parsed) = Url::parse(css_url_str) {
+                let normalized = parsed.as_str().trim_end_matches('/').to_string();
+                if !seen_urls.insert(normalized) { continue; }
+
+                let original_ref = link_map.iter()
+                    .find(|(u, _)| *u == parsed)
+                    .map(|(_, href)| href.clone())
+                    .unwrap_or(css_url_str.clone());
+                let filename = filename_from_url(&parsed);
+                let task = Self::download_css(
+                    client.clone(), parsed.clone(), original_ref, filename,
+                );
+                css_tasks.push(task);
+                css_idx += 1;
             }
         }
 
-        for element in document.select(&js_selector) {
+        for (resolved_url, original_href) in link_map.iter() {
+            let normalized = resolved_url.as_str().trim_end_matches('/').to_string();
+            if !seen_urls.insert(normalized) { continue; }
+
+            let filename = filename_from_url(resolved_url);
+            let task = Self::download_css(
+                client.clone(), resolved_url.clone(), original_href.clone(), filename,
+            );
+            css_tasks.push(task);
+            css_idx += 1;
+        }
+
+        for (idx, element) in document.select(&js_selector).enumerate() {
             if let Some(src) = element.value().attr("src") {
                 if let Ok(res_url) = base_url.join(src) {
-                    js_count += 1;
-                    let idx = js_count - 1;
-                    let task = Self::download_with_meta(
-                        client.clone(), res_url, src.to_string(),
-                        ResourceType::Js, idx,
+                    let task = Self::download_js(
+                        client.clone(), res_url, src.to_string(), idx,
                     );
-                    tasks.push(task);
+                    js_tasks.push(task);
+                    js_count += 1;
                 }
             }
         }
 
-        let results = join_all(tasks).await;
+        let (css_results, js_results) = join(join_all(css_tasks), join_all(js_tasks)).await;
 
-        let resources: Vec<Resource> = results
+        let resources: Vec<Resource> = css_results
             .into_iter()
+            .chain(js_results.into_iter())
             .filter_map(std::result::Result::ok)
             .collect();
 
         Ok(Self {
             resources,
-            nb_css: css_count,
+            nb_css: css_idx,
             nb_js: js_count,
         })
     }
 
-    async fn download_with_meta(
+    async fn download_css(
         client: reqwest::Client,
         url: Url,
         original_ref: String,
-        resource_type: ResourceType,
+        filename: String,
+    ) -> std::result::Result<Resource, ResourcesError> {
+        let mut resource = Resource::fetch(&client, &url).await?;
+        resource.resource_type = ResourceType::Css;
+        resource.original_ref = original_ref;
+        resource.filename = filename;
+        Ok(resource)
+    }
+
+    async fn download_js(
+        client: reqwest::Client,
+        url: Url,
+        original_ref: String,
         idx: usize,
     ) -> std::result::Result<Resource, ResourcesError> {
         let mut resource = Resource::fetch(&client, &url).await?;
-        resource.resource_type = resource_type;
+        resource.resource_type = ResourceType::Js;
         resource.original_ref = original_ref;
-        resource.filename = match resource.resource_type {
-            ResourceType::Css => format!("style_{}.css", idx),
-            ResourceType::Js => format!("script_{}.js", idx),
-        };
+        resource.filename = format!("script_{}.js", idx);
         Ok(resource)
     }
 
@@ -170,8 +202,12 @@ impl Resources {
         let assets_dir = output_directory.join("assets");
         let css_dir = assets_dir.join("css");
         let js_dir = assets_dir.join("js");
-        std::fs::create_dir_all(&css_dir)?;
-        std::fs::create_dir_all(&js_dir)?;
+        if self.nb_css > 0 {
+            std::fs::create_dir_all(&css_dir)?;
+        }
+        if self.nb_js > 0 {
+            std::fs::create_dir_all(&js_dir)?;
+        }
 
         let mut tasks = Vec::new();
         for resource in self.resources.iter() {
@@ -196,4 +232,12 @@ impl Resources {
         Ok(())
     }
 
+}
+
+fn filename_from_url(url: &Url) -> String {
+    url.path_segments()
+        .and_then(|s| s.last())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "style.css".to_string())
 }
