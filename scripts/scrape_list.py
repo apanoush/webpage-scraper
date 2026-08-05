@@ -1,9 +1,22 @@
 #!/usr/bin/env python3
 """Read URLs from a text file (one per line) and scrape each with wbps."""
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+
+def find_wbps():
+    which = shutil.which("wbps")
+    if which:
+        return which, "PATH"
+    here = Path(__file__).resolve().parent.parent
+    for profile in ("release", "debug"):
+        binary = here / "target" / profile / "wbps"
+        if binary.exists():
+            return str(binary), profile
+    return None, None
 
 
 def main():
@@ -19,21 +32,22 @@ def main():
         print(f"File not found: {urls_file}")
         sys.exit(1)
 
+    wbps, source = find_wbps()
+    if not wbps:
+        print("wbps not found in PATH or target/. Build it first: cargo build")
+        sys.exit(1)
+
+    label = f"{source} ({wbps})" if source == "PATH" else f"{source} build ({wbps})"
+    print(f"using wbps from {label}")
+
     urls = [line.strip() for line in urls_file.read_text().splitlines()
             if line.strip() and not line.strip().startswith("#")]
-
-    wbps = Path(__file__).parent / "webpage_scraper" / "target" / "debug" / "wbps"
-    if not wbps.exists():
-        wbps = Path(__file__).parent / "webpage_scraper" / "target" / "release" / "wbps"
-    if not wbps.exists():
-        print("wbps binary not found. Build it first: cargo build")
-        sys.exit(1)
 
     total = len(urls)
     for i, url in enumerate(urls, 1):
         print(f"\n[{i}/{total}] {url}")
         result = subprocess.run(
-            [str(wbps), url, *extra_args],
+            [wbps, url, *extra_args],
             cwd=urls_file.parent,
         )
         if result.returncode != 0:
