@@ -1,4 +1,5 @@
 use webpage_scraper::browser;
+use webpage_scraper::webpage::safe_title;
 use clap::Parser;
 use tokio;
 
@@ -34,7 +35,7 @@ async fn main() {
 
     let output_directory = match args.output_directory {
         Some(e) => e,
-        None => webpage.title.clone()
+        None => safe_title(&webpage.title),
     };
 
     webpage.write_to_disk(&output_directory, args.no_conversions).await.expect("Can't write scraped data to disk");

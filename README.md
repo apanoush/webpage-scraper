@@ -5,7 +5,7 @@ CLI tool that scrapes a webpage: HTML, PDF, Markdown, metadata JSON, images, CSS
 ## Architecture
 
 ```
-main.rs → Browser → (headless Chrome + scroll + DOM stability wait)
+main.rs → Browser → (headless Chrome + 20s nav timeout + scroll + DOM stability wait + cookie popup removal)
                 → WebPage::from_tab()
                       ├── PDF capture (early, via tab.print_to_pdf)
                       ├── Pandoc (HTML → Markdown, skipped with --no-conversions)
@@ -16,7 +16,7 @@ main.rs → Browser → (headless Chrome + scroll + DOM stability wait)
                       │           original filenames for @import support, download <script src>)
                       └── Videos (download <video src>, <source src>, <iframe src> -- opt-in)
                 → WebPage::write_to_disk()
-                      ├── <Title>.html (localised assets, charset → utf-8)
+                      ├── <Title>.html (title sanitized, assets localised, charset → utf-8)
                       ├── metadata.json
                       ├── conversions/  (PDF + Markdown)
                       └── assets/  (css/ + js/ + images/ + videos/)

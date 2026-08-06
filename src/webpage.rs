@@ -197,7 +197,7 @@ impl WebPage {
     }
 
     pub async fn output_pdf(&self, output_path: &Path) -> Result<()> {
-        let output_path = output_path.join("conversions").join(format!("{}.pdf", self.title));
+        let output_path = output_path.join("conversions").join(format!("{}.pdf", safe_title(&self.title)));
         if let Some(ref pdf_bytes) = self.pdf {
             std::fs::write(output_path, pdf_bytes)?;
         }
@@ -205,7 +205,7 @@ impl WebPage {
     }
 
     async fn output_html(&self, output_path: &Path) -> Result<()> {
-        let html_path = output_path.join(format!("{}.html", self.title));
+        let html_path = output_path.join(format!("{}.html", safe_title(&self.title)));
         //let html_path = output_path.join("index.html");
         let localized_html = self.images.localize_html(&self.html);
         let localized_html = self.resources.localize_html(&localized_html);
@@ -216,7 +216,7 @@ impl WebPage {
     }
 
     async fn output_markdown(&self, output_path: &Path) -> Result<()> {
-        let output_path = output_path.join("conversions").join(format!("{}.md", self.title));
+        let output_path = output_path.join("conversions").join(format!("{}.md", safe_title(&self.title)));
         fs::write(output_path, &self.markdown)?;
         Ok(())
     }
@@ -228,6 +228,10 @@ impl WebPage {
         Ok(())
     }
 
+}
+
+pub fn safe_title(title: &str) -> String {
+    title.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "-")
 }
 
 fn fix_charset(html: &str) -> String {

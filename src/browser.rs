@@ -2,10 +2,12 @@ use headless_chrome;
 use anyhow;
 use url::{Url, ParseError};
 use thiserror::Error;
-use crate::webpage::{WebPage, WebPageError};
+use crate::webpage::{WebPage, WebPageError, safe_title};
 use std::path::Path;
 use std::sync::Arc;
+use std::time;
 use serde_json;
+use tokio;
 
 #[derive(Error, Debug)]
 pub enum BrowserError {
@@ -28,13 +30,14 @@ impl Browser {
         Ok(Self(headless_chrome::Browser::default()?))
     }
 
-    fn url_to_tab(&self, url: &str) -> Result<Arc<headless_chrome::Tab>> {
-        
+    fn open_tab_impl(url: &str, browser: &headless_chrome::Browser) -> Result<Arc<headless_chrome::Tab>> {
         Url::parse(url)?;
-        let tab = self.0.new_tab()?;
-
+        let tab = browser.new_tab()?;
         tab.navigate_to(url)?.wait_until_navigated()?;
+        Ok(tab)
+    }
 
+    fn post_nav_setup(tab: &Arc<headless_chrome::Tab>) -> Result<()> {
         tab.evaluate(
             "new Promise((resolve) => {
                 const getH = () => Math.max(
@@ -88,13 +91,33 @@ impl Browser {
             true,
         )?;
 
-        Ok(tab)
+        tab.evaluate(
+            "document.querySelectorAll(
+                '[class*=\"cookie\"],[id*=\"cookie\"],[class*=\"consent\"],[id*=\"consent\"],
+                 [class*=\"popup\"],[id*=\"popup\"],[class*=\"modal\"],[id*=\"modal\"],
+                 [class*=\"overlay\"],[id*=\"overlay\"],[class*=\"banner\"],[id*=\"banner\"]'
+            ).forEach(el => el.remove())",
+            false,
+        )?;
 
+        Ok(())
     }
 
     pub async fn open_tab(&self, url: &str, no_conversions: bool, download_videos: bool) -> Result<WebPage> {
     
-        let tab = self.url_to_tab(url)?;
+        let url_owned = url.to_string();
+        let browser = self.0.clone();
+
+        let tab = tokio::time::timeout(
+            time::Duration::from_secs(20),
+            tokio::task::spawn_blocking(move || {
+                Self::open_tab_impl(&url_owned, &browser)
+            }),
+        ).await
+        .map_err(|_| BrowserError::ChromeError(anyhow::anyhow!("navigation timed out after 20s")))?
+        .map_err(|e| BrowserError::ChromeError(anyhow::anyhow!("{}", e)))??;
+
+        Self::post_nav_setup(&tab)?;
 
         let css_urls: Vec<String> = tab.evaluate(
             "JSON.stringify([...new Set(
@@ -116,9 +139,10 @@ impl Browser {
 
     pub fn url_to_pdf(&self, url: &str) -> Result<()> {
 
-        let tab = self.url_to_tab(url)?;
+        let tab = Self::open_tab_impl(url, &self.0)?;
+        Self::post_nav_setup(&tab)?;
         let title = tab.get_title()?;
-        let filename = format!("{}.pdf", title);
+        let filename = format!("{}.pdf", safe_title(&title));
         let output_path = Path::new(&filename);
         let pdf = tab.print_to_pdf(None)?;
         std::fs::write(&output_path, pdf)?;
