@@ -2,6 +2,7 @@ use webpage_scraper::browser;
 use webpage_scraper::webpage::safe_title;
 use clap::Parser;
 use tokio;
+use std::path::Path;
 
 /// Scraps a website, HTML (and its pandoc Markdown conversion), 
 /// info JSON and images
@@ -28,6 +29,12 @@ struct Args {
 async fn main() {
 
     let args = Args::parse();
+
+    if let Some(ref dir) = args.output_directory {
+        if Path::new(dir).exists() {
+            panic!("Output directory '{}' already exists", dir);
+        }
+    }
 
     let browser = browser::Browser::new().expect("Can't initiate browser");
 
