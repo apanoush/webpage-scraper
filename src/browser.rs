@@ -30,14 +30,19 @@ impl Browser {
         Ok(Self(headless_chrome::Browser::default()?))
     }
 
-    fn open_tab_impl(url: &str, browser: &headless_chrome::Browser) -> Result<Arc<headless_chrome::Tab>> {
+    fn navigate_and_setup(url: &str, browser: &headless_chrome::Browser) -> Result<Arc<headless_chrome::Tab>> {
         Url::parse(url)?;
         let tab = browser.new_tab()?;
-        tab.navigate_to(url)?.wait_until_navigated()?;
-        Ok(tab)
-    }
+        tab.navigate_to(url)?;
+        std::thread::sleep(time::Duration::from_secs(2));
+        let mut last_url = String::new();
+        loop {
+            std::thread::sleep(time::Duration::from_millis(500));
+            let current = tab.get_url();
+            if !current.is_empty() && current == last_url { break; }
+            last_url = current;
+        }
 
-    fn post_nav_setup(tab: &Arc<headless_chrome::Tab>) -> Result<()> {
         tab.evaluate(
             "new Promise((resolve) => {
                 const getH = () => Math.max(
@@ -48,7 +53,7 @@ impl Browser {
                 );
                 let lastH = getH();
                 let stable = 0;
-                const maxCycles = 100;
+                const maxCycles = 60;
                 let cycles = 0;
                 const timer = setInterval(() => {
                     window.scrollBy(0, 300);
@@ -100,7 +105,7 @@ impl Browser {
             false,
         )?;
 
-        Ok(())
+        Ok(tab)
     }
 
     pub async fn open_tab(&self, url: &str, no_conversions: bool, download_videos: bool) -> Result<WebPage> {
@@ -111,13 +116,11 @@ impl Browser {
         let tab = tokio::time::timeout(
             time::Duration::from_secs(20),
             tokio::task::spawn_blocking(move || {
-                Self::open_tab_impl(&url_owned, &browser)
+                Self::navigate_and_setup(&url_owned, &browser)
             }),
         ).await
         .map_err(|_| BrowserError::ChromeError(anyhow::anyhow!("navigation timed out after 20s")))?
         .map_err(|e| BrowserError::ChromeError(anyhow::anyhow!("{}", e)))??;
-
-        Self::post_nav_setup(&tab)?;
 
         let css_urls: Vec<String> = tab.evaluate(
             "JSON.stringify([...new Set(
@@ -139,8 +142,7 @@ impl Browser {
 
     pub fn url_to_pdf(&self, url: &str) -> Result<()> {
 
-        let tab = Self::open_tab_impl(url, &self.0)?;
-        Self::post_nav_setup(&tab)?;
+        let tab = Self::navigate_and_setup(url, &self.0)?;
         let title = tab.get_title()?;
         let filename = format!("{}.pdf", safe_title(&title));
         let output_path = Path::new(&filename);

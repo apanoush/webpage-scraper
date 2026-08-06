@@ -74,7 +74,10 @@ impl WebPage {
         let pdf = if no_conversions {
             None
         } else {
-            Some(tab.print_to_pdf(None)?)
+            let tab = tab.clone();
+            Some(tokio::task::spawn_blocking(move || {
+                tab.print_to_pdf(None)
+            }).await??)
         };
 
         let client = reqwest::Client::builder()
