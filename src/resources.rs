@@ -60,7 +60,7 @@ pub struct Resources {
 
 impl Resources {
 
-    pub async fn from(html: &str, base_url: &str, css_urls: Vec<String>) -> Result<Self> {
+    pub async fn from(html: &str, base_url: &str, css_urls: Vec<String>, client: &reqwest::Client) -> Result<Self> {
 
         let base_url = Url::parse(base_url)?;
 
@@ -72,7 +72,6 @@ impl Resources {
         let document = Html::parse_document(&html);
         let css_link_selector = Selector::parse("link[rel=\"stylesheet\"]").unwrap();
         let js_selector = Selector::parse("script[src]").unwrap();
-        let client = Self::init_client()?;
 
         let link_map: Vec<(Url, String)> = document.select(&css_link_selector)
             .filter_map(|el| el.value().attr("href"))
@@ -102,7 +101,7 @@ impl Resources {
                     .unwrap_or(css_url_str.clone());
                 let filename = unique_resource_name(&parsed, &mut used_css_names, "css");
                 let task = Self::download_css(
-                    client.clone(), parsed.clone(), original_ref, filename,
+                    client, parsed.clone(), original_ref, filename,
                 );
                 css_tasks.push(task);
             }
@@ -114,7 +113,7 @@ impl Resources {
 
             let filename = unique_resource_name(resolved_url, &mut used_css_names, "css");
             let task = Self::download_css(
-                client.clone(), resolved_url.clone(), original_href.clone(), filename,
+                client, resolved_url.clone(), original_href.clone(), filename,
             );
             css_tasks.push(task);
         }
@@ -124,7 +123,7 @@ impl Resources {
                 if let Ok(res_url) = base_url.join(src) {
                     let filename = unique_resource_name(&res_url, &mut used_js_names, "js");
                     let task = Self::download_js(
-                        client.clone(), res_url, src.to_string(), filename,
+                        client, res_url, src.to_string(), filename,
                     );
                     js_tasks.push(task);
                 }
@@ -153,12 +152,12 @@ impl Resources {
     }
 
     async fn download_css(
-        client: reqwest::Client,
+        client: &reqwest::Client,
         url: Url,
         original_ref: String,
         filename: String,
     ) -> std::result::Result<Resource, ResourcesError> {
-        let mut resource = Resource::fetch(&client, &url).await?;
+        let mut resource = Resource::fetch(client, &url).await?;
         resource.resource_type = ResourceType::Css;
         resource.original_ref = original_ref;
         resource.filename = filename;
@@ -166,24 +165,16 @@ impl Resources {
     }
 
     async fn download_js(
-        client: reqwest::Client,
+        client: &reqwest::Client,
         url: Url,
         original_ref: String,
         filename: String,
     ) -> std::result::Result<Resource, ResourcesError> {
-        let mut resource = Resource::fetch(&client, &url).await?;
+        let mut resource = Resource::fetch(client, &url).await?;
         resource.resource_type = ResourceType::Js;
         resource.original_ref = original_ref;
         resource.filename = filename;
         Ok(resource)
-    }
-
-    const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
-
-    fn init_client() -> std::result::Result<reqwest::Client, reqwest::Error> {
-        reqwest::Client::builder()
-            .user_agent(Self::USER_AGENT)
-            .build()
     }
 
     pub fn len(&self) -> usize {

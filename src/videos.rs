@@ -56,14 +56,13 @@ pub struct Videos ( Vec<Video> );
 
 impl Videos {
 
-    pub async fn from(html: String, base_url: String) -> Result<Self> {
+    pub async fn from(html: String, base_url: String, client: &reqwest::Client) -> Result<Self> {
 
         let base_url = Url::parse(&base_url)?;
 
         let document = Html::parse_document(&html);
         let video_selector = Selector::parse("video[src], video source[src]").unwrap();
         let iframe_selector = Selector::parse("iframe[src]").unwrap();
-        let client = Self::init_client()?;
 
         let mut tasks = Vec::new();
         let mut idx = 0usize;
@@ -71,7 +70,7 @@ impl Videos {
         for element in document.select(&video_selector) {
             if let Some(src) = element.value().attr("src") {
                 if let Ok(res_url) = base_url.join(src) {
-                    let task = Video::fetch(&client, res_url, src.to_string(), idx);
+                    let task = Video::fetch(client, res_url, src.to_string(), idx);
                     tasks.push(task);
                     idx += 1;
                 }
@@ -81,7 +80,7 @@ impl Videos {
         for element in document.select(&iframe_selector) {
             if let Some(src) = element.value().attr("src") {
                 if let Ok(res_url) = base_url.join(src) {
-                    let task = Video::fetch(&client, res_url, src.to_string(), idx);
+                    let task = Video::fetch(client, res_url, src.to_string(), idx);
                     tasks.push(task);
                     idx += 1;
                 }
@@ -96,14 +95,6 @@ impl Videos {
             .collect();
 
         Ok(Self(videos))
-    }
-
-    const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
-
-    fn init_client() -> std::result::Result<reqwest::Client, reqwest::Error> {
-        reqwest::Client::builder()
-            .user_agent(Self::USER_AGENT)
-            .build()
     }
 
     pub fn len(&self) -> usize {

@@ -131,14 +131,13 @@ pub struct Images ( pub Vec<Image> );
 
 impl Images {
     
-    pub async fn from(html: &str, base_url: &str) -> Result<Self> {
+    pub async fn from(html: &str, base_url: &str, client: &reqwest::Client) -> Result<Self> {
 
         let base_url = Url::parse(base_url)?;
 
         let document = Html::parse_document(html);
         let img_selector = Selector::parse("img").unwrap();
         let source_selector = Selector::parse("picture source[srcset]").unwrap();
-        let client = Self::init_client()?;
 
         let mut tasks_src = Vec::new();
         let mut tasks_srcset = Vec::new();
@@ -147,28 +146,28 @@ impl Images {
         for element in document.select(&img_selector) {
             if let Some(src) = element.value().attr("src") {
                 if seen_urls.insert(src.to_string()) {
-                    let task = Image::handle_image_src(src, &base_url, &client);
+                    let task = Image::handle_image_src(src, &base_url, client);
                     tasks_src.push(task);
                 }
             }
 
             if let Some(src) = element.value().attr("data-src") {
                 if seen_urls.insert(src.to_string()) {
-                    let task = Image::handle_image_src(src, &base_url, &client);
+                    let task = Image::handle_image_src(src, &base_url, client);
                     tasks_src.push(task);
                 }
             }
 
             if let Some(srcset) = element.value().attr("srcset") {
                 if seen_urls.insert(srcset.to_string()) {
-                    let task = Image::handle_image_srcset(srcset, &client);
+                    let task = Image::handle_image_srcset(srcset, client);
                     tasks_srcset.push(task);
                 }
             }
 
             if let Some(srcset) = element.value().attr("data-srcset") {
                 if seen_urls.insert(srcset.to_string()) {
-                    let task = Image::handle_image_srcset(srcset, &client);
+                    let task = Image::handle_image_srcset(srcset, client);
                     tasks_srcset.push(task);
                 }
             }
@@ -177,7 +176,7 @@ impl Images {
         for element in document.select(&source_selector) {
             if let Some(srcset) = element.value().attr("srcset") {
                 if seen_urls.insert(srcset.to_string()) {
-                    let task = Image::handle_image_srcset(srcset, &client);
+                    let task = Image::handle_image_srcset(srcset, client);
                     tasks_srcset.push(task);
                 }
             }
@@ -193,14 +192,6 @@ impl Images {
             .collect();
 
         Ok(Self(images))
-    }
-
-    const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36";
-
-    fn init_client() -> std::result::Result<reqwest::Client, reqwest::Error> {
-        reqwest::Client::builder()
-            .user_agent(Self::USER_AGENT)
-            .build()
     }
 
     pub fn len(&self) -> usize {
@@ -253,7 +244,11 @@ mod tests {
         
         let base_url = "https://www.epfl.ch/en/";
         let output_path = "test/test_images_epfl";
-        let images = Images::from(&html, base_url).await.unwrap();
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            .build()
+            .unwrap();
+        let images = Images::from(&html, base_url, &client).await.unwrap();
         images.write_images_to_disk(Path::new(output_path)).await.unwrap();
     }
 }

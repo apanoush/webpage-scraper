@@ -12,6 +12,7 @@ use crate::images::{Images, ImagesError};
 use crate::resources::{Resources, ResourcesError};
 use crate::videos::{Videos, VideosError};
 use regex::Regex;
+use reqwest;
 
 pub struct WebPage {
     pub url: String,
@@ -76,10 +77,15 @@ impl WebPage {
             Some(tab.print_to_pdf(None)?)
         };
 
-        let images_fut = Images::from(&html, &url);
-        let resources_fut = Resources::from(&html, &url, css_urls);
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            .build()
+            .map_err(|e| WebPageError::ImagesError(ImagesError::ReqwestError(e)))?;
+
+        let images_fut = Images::from(&html, &url, &client);
+        let resources_fut = Resources::from(&html, &url, css_urls, &client);
         let videos_fut = if download_videos {
-            Some(Videos::from(html.clone(), url.clone()))
+            Some(Videos::from(html.clone(), url.clone(), &client))
         } else {
             None
         };
@@ -136,29 +142,21 @@ impl WebPage {
     }
 
     async fn html2md(html: String) -> Result<String> {
-        
-        let mut pandoc = pandoc::Pandoc::new();
-
-        pandoc
-            .set_input(pandoc::InputKind::Pipe(html))
-            .set_input_format(
-                pandoc::InputFormat::Html, 
-                vec![]
-            )
-            .set_output(pandoc::OutputKind::Pipe)
-            .set_output_format(
-                pandoc::OutputFormat::Other("gfm-raw_html".to_string()), 
-                vec![]
-            );
-
-        let res = pandoc.execute()?;
-
-        match res {
-            pandoc::PandocOutput::ToBuffer(e) => return Ok(e),
-            _ => return Err(WebPageError::MarkdownConversionError(
-                pandoc::PandocError::PandocNotFound
-            ))
-        }
+        tokio::task::spawn_blocking(move || {
+            let mut pandoc = pandoc::Pandoc::new();
+            pandoc
+                .set_input(pandoc::InputKind::Pipe(html))
+                .set_input_format(pandoc::InputFormat::Html, vec![])
+                .set_output(pandoc::OutputKind::Pipe)
+                .set_output_format(pandoc::OutputFormat::Other("gfm-raw_html".to_string()), vec![]);
+            let res = pandoc.execute()?;
+            match res {
+                pandoc::PandocOutput::ToBuffer(e) => Ok(e),
+                _ => Err(WebPageError::MarkdownConversionError(
+                    pandoc::PandocError::PandocNotFound
+                ))
+            }
+        }).await?
     }
 
     pub async fn write_to_disk(&self, output_path: &str, no_conversions: bool) -> Result<()> {
