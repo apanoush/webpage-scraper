@@ -43,7 +43,7 @@ impl Browser {
             if !current.is_empty() && current == last_url { break; }
             last_url = current;
             url_cycles += 1;
-            if url_cycles >= 30 { break; }
+            if url_cycles >= 20 { break; }
         }
 
         tab.evaluate(
@@ -56,10 +56,10 @@ impl Browser {
                 );
                 let lastH = getH();
                 let stable = 0;
-                const maxCycles = 60;
+                const maxCycles = 40;
                 let cycles = 0;
                 const timer = setInterval(() => {
-                    window.scrollBy(0, 300);
+                    window.scrollBy(0, 500);
                     cycles++;
                     setTimeout(() => {
                         const h = getH();
@@ -70,8 +70,8 @@ impl Browser {
                             window.scrollTo(0, 0);
                             resolve();
                         }
-                    }, 150);
-                }, 250);
+                    }, 100);
+                }, 100);
             })",
             true,
         )?;
@@ -81,7 +81,7 @@ impl Browser {
                 let lastLength = document.body.innerHTML.length;
                 let stable = 0;
                 let neededStable = document.querySelector('.loader, .upt-loader, .loading, [data-loading], [aria-busy=\"true\"], .spinner') ? 3 : 2;
-                const maxWaitCycles = 15;
+                const maxWaitCycles = 10;
                 let cycles = 0;
                 const check = setInterval(() => {
                     const len = document.body.innerHTML.length;
@@ -124,12 +124,12 @@ impl Browser {
         let browser = self.0.clone();
 
         let tab = tokio::time::timeout(
-            time::Duration::from_secs(30),
+            time::Duration::from_secs(25),
             tokio::task::spawn_blocking(move || {
                 Self::navigate_and_setup(&url_owned, &browser)
             }),
         ).await
-        .map_err(|_| BrowserError::ChromeError(anyhow::anyhow!("navigation timed out after 30s")))?
+        .map_err(|_| BrowserError::ChromeError(anyhow::anyhow!("navigation timed out after 25s")))?
         .map_err(|e| BrowserError::ChromeError(anyhow::anyhow!("{}", e)))??;
 
         let css_urls: Vec<String> = tab.evaluate(
