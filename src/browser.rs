@@ -36,11 +36,14 @@ impl Browser {
         tab.navigate_to(url)?;
         std::thread::sleep(time::Duration::from_secs(2));
         let mut last_url = String::new();
+        let mut url_cycles = 0;
         loop {
             std::thread::sleep(time::Duration::from_millis(500));
             let current = tab.get_url();
             if !current.is_empty() && current == last_url { break; }
             last_url = current;
+            url_cycles += 1;
+            if url_cycles >= 30 { break; }
         }
 
         tab.evaluate(
@@ -77,10 +80,13 @@ impl Browser {
             "new Promise((resolve) => {
                 let lastLength = document.body.innerHTML.length;
                 let stable = 0;
-                const neededStable = document.querySelector('.loader, .upt-loader, .loading, [data-loading], [aria-busy=\"true\"], .spinner') ? 3 : 2;
+                let neededStable = document.querySelector('.loader, .upt-loader, .loading, [data-loading], [aria-busy=\"true\"], .spinner') ? 3 : 2;
+                const maxWaitCycles = 15;
+                let cycles = 0;
                 const check = setInterval(() => {
                     const len = document.body.innerHTML.length;
                     const busy = document.querySelector('.loader, .upt-loader, .loading, [data-loading], [aria-busy=\"true\"], .spinner');
+                    cycles++;
                     if (len === lastLength && !busy) {
                         stable++;
                         if (stable >= neededStable) {
@@ -90,6 +96,10 @@ impl Browser {
                     } else {
                         stable = 0;
                         lastLength = len;
+                    }
+                    if (cycles >= maxWaitCycles) {
+                        clearInterval(check);
+                        resolve();
                     }
                 }, 1000);
             })",
@@ -114,12 +124,12 @@ impl Browser {
         let browser = self.0.clone();
 
         let tab = tokio::time::timeout(
-            time::Duration::from_secs(20),
+            time::Duration::from_secs(30),
             tokio::task::spawn_blocking(move || {
                 Self::navigate_and_setup(&url_owned, &browser)
             }),
         ).await
-        .map_err(|_| BrowserError::ChromeError(anyhow::anyhow!("navigation timed out after 20s")))?
+        .map_err(|_| BrowserError::ChromeError(anyhow::anyhow!("navigation timed out after 30s")))?
         .map_err(|e| BrowserError::ChromeError(anyhow::anyhow!("{}", e)))??;
 
         let css_urls: Vec<String> = tab.evaluate(

@@ -5,7 +5,7 @@ CLI tool that scrapes a webpage: HTML, PDF, Markdown, metadata JSON, images, CSS
 ## Architecture
 
 ```
-main.rs → Browser → (headless Chrome + 20s nav timeout + scroll + DOM stability wait + cookie popup removal)
+main.rs → Browser → (headless Chrome + 30s nav timeout + scroll + DOM stability wait + cookie popup removal)
                 → WebPage::from_tab()
                       ├── PDF capture (early, via tab.print_to_pdf)
                       ├── Pandoc (HTML → Markdown, skipped with --no-conversions)
@@ -23,6 +23,18 @@ main.rs → Browser → (headless Chrome + 20s nav timeout + scroll + DOM stabil
 ```
 
 ![Overview](assets/overview.pdf)
+
+### Navigation phases
+
+Each phase has a cap to prevent hanging on broken or slow pages:
+
+| Phase | Cap | Max time |
+|---|---|---|
+| Initial settle | fixed 2s | 2s |
+| URL polling | 30 iterations every 500ms | 15s |
+| Scroll to bottom | 60 cycles every 250ms | 15s |
+| DOM stability wait | 15 cycles every 1s | 15s |
+| **Total** | **outer timeout** | **30s** |
 
 ## Dependencies
 
